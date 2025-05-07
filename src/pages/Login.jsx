@@ -39,7 +39,7 @@ export default function LoginPage() {
       loginSchema.parse(formData);
 
       await signInWithEmailAndPassword(auth, formData.email, formData.password);
-      navigate('/dashboard');
+      navigate('/');
     } catch (err) {
       if (err.code === "auth/user-disabled") {
         setErrors({ submit: "This account has been disabled. Please contact support!!!" });

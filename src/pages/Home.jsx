@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Menu, X, BookOpen, LogOut, Users, Calendar, FileText } from 'lucide-react';
+import { Menu, X, BookOpen, LogOut, Users, Calendar, FileText, User } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function HomePage() {
@@ -30,7 +30,11 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <nav className={`fixed w-full z-50 transition-all duration-300 ${scrolled ? 'bg-white shadow-md py-2' : 'bg-transparent py-4'}`}>
+      <nav className={`fixed w-full z-50 transition-all duration-300 ${
+        scrolled || isMenuOpen 
+          ? 'bg-white shadow-md py-2' 
+          : 'md:bg-transparent bg-white py-4'
+      }`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center">
             {/* Logo */}
@@ -38,74 +42,137 @@ export default function HomePage() {
               <Link to="/" className="text-dominant font-bold text-2xl">Insights</Link>
             </div>
 
-            {/* Desktop Navigation - Removed as requested */}
-
-            {/* Auth Buttons */}
+            {/* Desktop Navigation */}
             <div className="hidden md:flex items-center space-x-4">
               {user ? (
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center text-dominant hover:text-highlight transition-colors"
-                >
-                  <LogOut className="h-5 w-5 mr-1" />
-                  Logout
-                </button>
-              ) : (
                 <>
-                  <Link to="/login" className="text-dominant hover:text-highlight transition-colors">Login</Link>
-                  <Link to="/signup" className="bg-accent hover:bg-highlight text-white font-medium py-2 px-4 rounded-lg transition-colors">
-                    Sign Up
+                  <Link
+                    to="/my-classrooms"
+                    className="bg-dominant hover:bg-dominant/90 text-white px-4 py-2 rounded-md text-sm font-medium"
+                  >
+                    My Classrooms
                   </Link>
+                  {user.role === 'teacher' && (
+                    <Link
+                      to="/classroom/create"
+                      className="text-gray-600 hover:text-dominant px-3 py-2 rounded-md text-sm font-medium"
+                    >
+                      Create Classroom
+                    </Link>
+                  )}
+                  <Link
+                    to="/classroom/join"
+                    className="text-gray-600 hover:text-dominant px-3 py-2 rounded-md text-sm font-medium"
+                  >
+                    Join Classroom
+                  </Link>
+                  <Link
+                    to="/profile"
+                    className="flex items-center text-gray-600 hover:text-dominant transition-colors duration-200"
+                  >
+                    <User size={20} className="mr-2" />
+                    Profile
+                  </Link>
+                  <button
+                    onClick={handleLogout}
+                    className="text-gray-600 hover:text-dominant px-3 py-2 rounded-md text-sm font-medium"
+                  >
+                    Logout
+                  </button>
                 </>
-              )}
-            </div>
-
-            {/* Mobile Menu Button */}
-            <div className="md:hidden">
-              <button 
-                onClick={toggleMenu}
-                className="text-gray-600 hover:text-highlight focus:outline-none"
-              >
-                {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Mobile Menu */}
-        {isMenuOpen && (
-          <div className="md:hidden bg-white border-t mt-2">
-            <div className="px-4 py-4 flex flex-col items-center space-y-3">
-              {/* Mobile navigation links removed as requested */}
-              {user ? (
-                <button
-                  onClick={handleLogout}
-                  className="w-full flex items-center justify-center text-dominant hover:bg-gray-50 py-3 px-4 text-center font-medium rounded-lg border border-gray-200 transition-colors"
-                >
-                  <LogOut className="h-5 w-5 mr-1" />
-                  Logout
-                </button>
               ) : (
                 <>
-                  <Link 
-                    to="/login" 
-                    className="w-full text-dominant hover:bg-gray-50 py-3 px-4 text-center font-medium rounded-lg border border-gray-200 transition-colors" 
-                    onClick={toggleMenu}
+                  <Link
+                    to="/login"
+                    className="text-gray-600 hover:text-dominant px-3 py-2 rounded-md text-sm font-medium"
                   >
                     Login
                   </Link>
-                  <Link 
-                    to="/signup" 
-                    className="w-full bg-accent hover:bg-highlight text-white py-3 px-4 text-center font-medium rounded-lg transition-colors" 
-                    onClick={toggleMenu}
+                  <Link
+                    to="/signup"
+                    className="bg-accent hover:bg-highlight text-white px-4 py-2 rounded-md text-sm font-medium"
                   >
                     Sign Up
                   </Link>
                 </>
               )}
             </div>
+
+            {/* Mobile menu button */}
+            <div className="md:hidden">
+              <button
+                onClick={toggleMenu}
+                className="text-gray-600 hover:text-dominant focus:outline-none"
+              >
+                {isMenuOpen ? (
+                  <X className="h-6 w-6" />
+                ) : (
+                  <Menu className="h-6 w-6" />
+                )}
+              </button>
+            </div>
           </div>
-        )}
+
+          {/* Mobile menu */}
+          {isMenuOpen && (
+            <div className="md:hidden bg-white shadow-lg rounded-lg mt-2">
+              <div className="px-2 pt-2 pb-3 space-y-1">
+                {user ? (
+                  <>
+                    <Link
+                      to="/my-classrooms"
+                      className="block bg-dominant hover:bg-dominant/90 text-white px-3 py-2 rounded-md text-base font-medium"
+                    >
+                      My Classrooms
+                    </Link>
+                    {user.role === 'teacher' && (
+                      <Link
+                        to="/classroom/create"
+                        className="block text-gray-600 hover:text-dominant px-3 py-2 rounded-md text-base font-medium"
+                      >
+                        Create Classroom
+                      </Link>
+                    )}
+                    <Link
+                      to="/classroom/join"
+                      className="block text-gray-600 hover:text-dominant px-3 py-2 rounded-md text-base font-medium"
+                    >
+                      Join Classroom
+                    </Link>
+                    <Link
+                      to="/profile"
+                      className="flex items-center text-gray-600 hover:text-dominant px-3 py-2 rounded-md text-base font-medium"
+                    >
+                      <User size={20} className="mr-2" />
+                      Profile
+                    </Link>
+                    <button
+                      onClick={handleLogout}
+                      className="block w-full text-left text-gray-600 hover:text-dominant px-3 py-2 rounded-md text-base font-medium"
+                    >
+                      Logout
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <Link
+                      to="/login"
+                      className="block text-gray-600 hover:text-dominant px-3 py-2 rounded-md text-base font-medium"
+                    >
+                      Login
+                    </Link>
+                    <Link
+                      to="/signup"
+                      className="block bg-accent hover:bg-highlight text-white px-3 py-2 rounded-md text-base font-medium"
+                    >
+                      Sign Up
+                    </Link>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </nav>
 
       {/* Hero Section */}
