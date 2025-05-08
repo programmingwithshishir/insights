@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import PageNav from '../components/PageNav';
-import { MessageSquare, BookOpen, Users, BarChart2, Menu, X, User } from 'lucide-react';
+import { MessageSquare, BookOpen, Users, BarChart2, Menu, X, User, Upload, Download, Trash2 } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { initDatabase, uploadPDF, getClassroomPDFs, getPDFById, deletePDF } from '../utils/database';
 
 export default function ClassroomDetail() {
   const { classroomId } = useParams();
@@ -14,6 +15,9 @@ export default function ClassroomDetail() {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [materials, setMaterials] = useState([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
 
   const tabs = [
     { id: 'chat', label: 'Chat', icon: MessageSquare },
@@ -21,6 +25,11 @@ export default function ClassroomDetail() {
     { id: 'students', label: 'Students', icon: Users },
     { id: 'reports', label: 'Reports', icon: BarChart2 },
   ];
+
+  // Initialize database on component mount
+  useEffect(() => {
+    initDatabase().catch(console.error);
+  }, []);
 
   useEffect(() => {
     const fetchStudents = async () => {
@@ -86,6 +95,86 @@ export default function ClassroomDetail() {
     }
   }, [classroomId, activeTab]);
 
+  // Fetch materials when materials tab is active
+  useEffect(() => {
+    if (activeTab === 'materials') {
+      fetchMaterials();
+    }
+  }, [activeTab, classroomId]);
+
+  const fetchMaterials = async () => {
+    try {
+      const materialsList = await getClassroomPDFs(classroomId);
+      setMaterials(materialsList);
+    } catch (err) {
+      console.error('Error fetching materials:', err);
+      setError('Failed to load materials');
+    }
+  };
+
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (file.type !== 'application/pdf') {
+      setUploadError('Please upload a PDF file');
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError('');
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const fileData = e.target.result;
+        await uploadPDF(classroomId, file.name, fileData, user.uid);
+        await fetchMaterials();
+      };
+      reader.readAsArrayBuffer(file);
+    } catch (err) {
+      console.error('Error uploading file:', err);
+      setUploadError('Failed to upload file');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDownload = async (pdfId, fileName) => {
+    try {
+      const pdf = await getPDFById(pdfId);
+      if (!pdf) throw new Error('PDF not found');
+
+      // Convert the binary data to a Blob
+      const blob = new Blob([pdf.file_data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      
+      // Create a temporary link and trigger download
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Error downloading file:', err);
+      setError('Failed to download file');
+    }
+  };
+
+  const handleDelete = async (pdfId) => {
+    if (!window.confirm('Are you sure you want to delete this file?')) return;
+
+    try {
+      await deletePDF(pdfId, user.uid);
+      await fetchMaterials();
+    } catch (err) {
+      console.error('Error deleting file:', err);
+      setError('Failed to delete file');
+    }
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'chat':
@@ -97,7 +186,79 @@ export default function ClassroomDetail() {
       case 'materials':
         return (
           <div className="h-[600px] bg-gray-50 rounded-lg p-4">
-            <p className="text-gray-500 text-center">Learning materials will be available here...</p>
+            {user.role === 'teacher' && (
+              <div className="mb-6">
+                <label className="block">
+                  <span className="sr-only">Choose PDF file</span>
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    onChange={handleFileUpload}
+                    disabled={isUploading}
+                    className="block w-full text-sm text-gray-500
+                      file:mr-4 file:py-2 file:px-4
+                      file:rounded-md file:border-0
+                      file:text-sm file:font-semibold
+                      file:bg-dominant file:text-white
+                      hover:file:bg-dominant/90
+                      disabled:opacity-50 disabled:cursor-not-allowed
+                      cursor-pointer"
+                  />
+                </label>
+                {uploadError && (
+                  <p className="mt-2 text-sm text-red-600">{uploadError}</p>
+                )}
+              </div>
+            )}
+
+            {error && (
+              <div className="mb-4 p-4 bg-red-50 text-red-700 rounded-md">
+                {error}
+              </div>
+            )}
+
+            {materials.length === 0 ? (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-gray-500">No materials available yet.</p>
+              </div>
+            ) : (
+              <div className="space-y-4 overflow-y-auto max-h-[calc(100%-2rem)]">
+                {materials.map((material) => (
+                  <div
+                    key={material.id}
+                    className="bg-white p-4 rounded-lg shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div className="flex items-center space-x-3 min-w-0">
+                      <BookOpen className="h-5 w-5 text-dominant flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-900 truncate">{material.file_name}</p>
+                        <p className="text-sm text-gray-500">
+                          Uploaded {new Date(material.uploaded_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2 self-end sm:self-auto">
+                      <button
+                        onClick={() => handleDownload(material.id, material.file_name)}
+                        className="p-2 text-gray-600 hover:text-dominant rounded-md hover:bg-gray-100 cursor-pointer transition-colors duration-200"
+                        title="Download"
+                      >
+                        <Download size={20} />
+                      </button>
+                      {user.role === 'teacher' && (
+                        <button
+                          onClick={() => handleDelete(material.id)}
+                          className="p-2 text-red-600 hover:text-red-700 rounded-md hover:bg-red-50 cursor-pointer transition-colors duration-200"
+                          title="Delete"
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         );
       case 'students':
