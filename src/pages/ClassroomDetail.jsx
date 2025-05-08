@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import PageNav from '../components/PageNav';
-import { MessageSquare, BookOpen, Users, BarChart2, Menu, X, User, Upload, Download, Trash2 } from 'lucide-react';
+import { MessageSquare, BookOpen, Users, BarChart2, Menu, X, User, Upload, Download, Trash2, Send } from 'lucide-react';
 import { db } from '../firebase';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, addDoc, serverTimestamp, onSnapshot, orderBy } from 'firebase/firestore';
 import { initDatabase, uploadPDF, getClassroomPDFs, getPDFById, deletePDF } from '../utils/database';
 
 export default function ClassroomDetail() {
@@ -18,13 +18,23 @@ export default function ClassroomDetail() {
   const [materials, setMaterials] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
 
   const tabs = [
-    { id: 'chat', label: 'Chat', icon: MessageSquare },
+    ...(user.role === 'student' ? [{ id: 'chat', label: 'Chat', icon: MessageSquare }] : []),
     { id: 'materials', label: 'Materials', icon: BookOpen },
     { id: 'students', label: 'Students', icon: Users },
     { id: 'reports', label: 'Reports', icon: BarChart2 },
   ];
+
+  // Set initial active tab based on user role
+  useEffect(() => {
+    if (user.role === 'teacher' && activeTab === 'chat') {
+      setActiveTab('materials');
+    }
+  }, [user.role, activeTab]);
 
   // Initialize database on component mount
   useEffect(() => {
@@ -195,12 +205,100 @@ export default function ClassroomDetail() {
     }
   };
 
+  // Listen for chat messages
+  useEffect(() => {
+    if (activeTab === 'chat' && user.role === 'student') {
+      const messagesRef = collection(db, 'classrooms', classroomId, 'messages');
+      const q = query(messagesRef, orderBy('timestamp', 'asc'));
+      
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const messagesData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setMessages(messagesData);
+      });
+
+      return () => unsubscribe();
+    }
+  }, [activeTab, classroomId, user.role]);
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!newMessage.trim() || user.role !== 'student') return;
+
+    setIsSending(true);
+    try {
+      const messagesRef = collection(db, 'classrooms', classroomId, 'messages');
+      await addDoc(messagesRef, {
+        text: newMessage.trim(),
+        senderId: user.uid,
+        senderName: user.name,
+        timestamp: serverTimestamp()
+      });
+      setNewMessage('');
+    } catch (err) {
+      console.error('Error sending message:', err);
+      setError('Failed to send message');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'chat':
         return (
-          <div className="h-[600px] bg-gray-50 rounded-lg p-4">
-            <p className="text-gray-500 text-center">Chat functionality coming soon...</p>
+          <div className="h-[600px] bg-gray-50 rounded-lg p-4 flex flex-col">
+            {user.role === 'teacher' ? (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-gray-500">Teachers cannot access the chat.</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex-1 overflow-y-auto mb-4 space-y-4">
+                  {messages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={`flex ${message.senderId === user.uid ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div
+                        className={`max-w-[70%] rounded-lg p-3 ${
+                          message.senderId === user.uid
+                            ? 'bg-dominant text-white'
+                            : 'bg-white text-gray-900'
+                        }`}
+                      >
+                        <p className="text-sm font-medium mb-1">
+                          {message.senderName}
+                        </p>
+                        <p className="text-sm">{message.text}</p>
+                        <p className="text-xs mt-1 opacity-70">
+                          {message.timestamp?.toDate().toLocaleTimeString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <form onSubmit={handleSendMessage} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder="Type your message..."
+                    className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-dominant"
+                    disabled={isSending}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!newMessage.trim() || isSending}
+                    className="bg-dominant text-white px-4 py-2 rounded-lg hover:bg-dominant/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Send size={20} />
+                  </button>
+                </form>
+              </>
+            )}
           </div>
         );
       case 'materials':
