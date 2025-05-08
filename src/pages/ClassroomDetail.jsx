@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import PageNav from '../components/PageNav';
-import { MessageSquare, BookOpen, Users, BarChart2, Menu, X, User, Upload, Download, Trash2, Send } from 'lucide-react';
+import { MessageSquare, BookOpen, Users, BarChart2, Menu, X, User, Upload, Download, Trash2, Send, FileText } from 'lucide-react';
 import { db } from '../firebase';
-import { doc, getDoc, collection, query, where, getDocs, addDoc, serverTimestamp, onSnapshot, orderBy } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, addDoc, serverTimestamp, onSnapshot, orderBy, deleteDoc } from 'firebase/firestore';
 import { initDatabase, uploadPDF, getClassroomPDFs, getPDFById, deletePDF } from '../utils/database';
 
 export default function ClassroomDetail() {
@@ -21,11 +21,29 @@ export default function ClassroomDetail() {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [tests, setTests] = useState([]);
+  const [testSubmissions, setTestSubmissions] = useState({});
+  const [isCreatingTest, setIsCreatingTest] = useState(false);
+  const [newTest, setNewTest] = useState({
+    title: '',
+    description: '',
+    questions: [],
+    timeLimit: 30, // minutes
+  });
+  const [currentTest, setCurrentTest] = useState(null);
+  const [testResponses, setTestResponses] = useState({});
+  const [testStartTime, setTestStartTime] = useState(null);
+  const [currentQuestion, setCurrentQuestion] = useState({
+    text: '',
+    options: ['', '', '', ''],
+    correctAnswer: '',
+  });
 
   const tabs = [
     ...(user.role === 'student' ? [{ id: 'chat', label: 'Chat', icon: MessageSquare }] : []),
     { id: 'materials', label: 'Materials', icon: BookOpen },
     { id: 'students', label: 'Students', icon: Users },
+    { id: 'tests', label: 'Tests', icon: FileText },
     { id: 'reports', label: 'Reports', icon: BarChart2 },
   ];
 
@@ -245,6 +263,188 @@ export default function ClassroomDetail() {
     }
   };
 
+  // Fetch tests and submissions when tests tab is active
+  useEffect(() => {
+    if (activeTab === 'tests') {
+      fetchTests();
+      if (user.role === 'student') {
+        fetchTestSubmissions();
+      }
+    }
+  }, [activeTab, classroomId, user.role]);
+
+  const fetchTests = async () => {
+    try {
+      const testsRef = collection(db, 'classrooms', classroomId, 'tests');
+      const q = query(testsRef, orderBy('createdAt', 'desc'));
+      const querySnapshot = await getDocs(q);
+      const testsData = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setTests(testsData);
+    } catch (err) {
+      console.error('Error fetching tests:', err);
+      setError('Failed to load tests');
+    }
+  };
+
+  const fetchTestSubmissions = async () => {
+    try {
+      const responsesRef = collection(db, 'classrooms', classroomId, 'testResponses');
+      const q = query(responsesRef, where('studentId', '==', user.uid));
+      const querySnapshot = await getDocs(q);
+      const submissions = {};
+      querySnapshot.docs.forEach(doc => {
+        const data = doc.data();
+        submissions[data.testId] = {
+          score: data.score,
+          submittedAt: data.endTime?.toDate?.() || data.endTime,
+          timeSpent: data.timeSpent
+        };
+      });
+      setTestSubmissions(submissions);
+    } catch (err) {
+      console.error('Error fetching test submissions:', err);
+      setError('Failed to load test submissions');
+    }
+  };
+
+  const handleCreateTest = async () => {
+    if (!newTest.title.trim() || newTest.questions.length === 0) {
+      setError('Please provide a title and at least one question');
+      return;
+    }
+
+    setIsCreatingTest(true);
+    try {
+      const testsRef = collection(db, 'classrooms', classroomId, 'tests');
+      await addDoc(testsRef, {
+        ...newTest,
+        createdBy: user.uid,
+        createdAt: serverTimestamp(),
+        status: 'draft'
+      });
+      setNewTest({
+        title: '',
+        description: '',
+        questions: [],
+        timeLimit: 30,
+      });
+      await fetchTests();
+    } catch (err) {
+      console.error('Error creating test:', err);
+      setError('Failed to create test');
+    } finally {
+      setIsCreatingTest(false);
+    }
+  };
+
+  const handleDeleteTest = async (testId) => {
+    if (!window.confirm('Are you sure you want to delete this test?')) return;
+
+    try {
+      await deleteDoc(doc(db, 'classrooms', classroomId, 'tests', testId));
+      await fetchTests();
+    } catch (err) {
+      console.error('Error deleting test:', err);
+      setError('Failed to delete test');
+    }
+  };
+
+  const handleStartTest = async (test) => {
+    setCurrentTest(test);
+    setTestStartTime(new Date());
+    setTestResponses({});
+  };
+
+  const handleSubmitTest = async () => {
+    if (!currentTest || !testStartTime) return;
+
+    try {
+      const endTime = new Date();
+      const timeSpent = endTime - testStartTime;
+      const score = calculateScore();
+
+      const responsesRef = collection(db, 'classrooms', classroomId, 'testResponses');
+      await addDoc(responsesRef, {
+        testId: currentTest.id,
+        studentId: user.uid,
+        studentName: user.name,
+        responses: testResponses,
+        startTime: testStartTime,
+        endTime: endTime,
+        timeSpent: timeSpent,
+        score: score,
+      });
+
+      // Update testSubmissions immediately
+      setTestSubmissions(prev => ({
+        ...prev,
+        [currentTest.id]: {
+          score: score,
+          submittedAt: endTime,
+          timeSpent: timeSpent
+        }
+      }));
+
+      setCurrentTest(null);
+      setTestStartTime(null);
+      setTestResponses({});
+    } catch (err) {
+      console.error('Error submitting test:', err);
+      setError('Failed to submit test');
+    }
+  };
+
+  const calculateScore = () => {
+    if (!currentTest) return 0;
+    let correct = 0;
+    Object.entries(testResponses).forEach(([questionId, answer]) => {
+      const question = currentTest.questions.find(q => q.id === questionId);
+      if (question && question.correctAnswer === answer) {
+        correct++;
+      }
+    });
+    return (correct / currentTest.questions.length) * 100;
+  };
+
+  const handleAddQuestion = () => {
+    if (!currentQuestion.text.trim() || !currentQuestion.correctAnswer) {
+      setError('Please provide question text and select a correct answer');
+      return;
+    }
+
+    if (currentQuestion.options.some(opt => !opt.trim())) {
+      setError('Please fill in all options');
+      return;
+    }
+
+    setNewTest({
+      ...newTest,
+      questions: [
+        ...newTest.questions,
+        {
+          id: Date.now().toString(),
+          ...currentQuestion
+        }
+      ]
+    });
+
+    setCurrentQuestion({
+      text: '',
+      options: ['', '', '', ''],
+      correctAnswer: '',
+    });
+  };
+
+  const handleRemoveQuestion = (questionId) => {
+    setNewTest({
+      ...newTest,
+      questions: newTest.questions.filter(q => q.id !== questionId)
+    });
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'chat':
@@ -423,6 +623,275 @@ export default function ClassroomDetail() {
                     ))}
                   </div>
                 </div>
+              </div>
+            )}
+          </div>
+        );
+      case 'tests':
+        return (
+          <div className="h-[600px] bg-gray-50 rounded-lg p-4">
+            {user.role === 'teacher' ? (
+              <div className="space-y-6">
+                <div className="bg-white rounded-lg shadow-sm p-4">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Create New Test</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Title</label>
+                      <input
+                        type="text"
+                        value={newTest.title}
+                        onChange={(e) => setNewTest({ ...newTest, title: e.target.value })}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-dominant focus:ring-dominant"
+                        placeholder="Enter test title"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Description</label>
+                      <textarea
+                        value={newTest.description}
+                        onChange={(e) => setNewTest({ ...newTest, description: e.target.value })}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-dominant focus:ring-dominant"
+                        rows={3}
+                        placeholder="Enter test description"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Time Limit (minutes)</label>
+                      <input
+                        type="number"
+                        value={newTest.timeLimit}
+                        onChange={(e) => setNewTest({ ...newTest, timeLimit: parseInt(e.target.value) })}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-dominant focus:ring-dominant"
+                        min={1}
+                      />
+                    </div>
+
+                    <div className="border-t pt-4 mt-4">
+                      <h4 className="text-md font-medium text-gray-900 mb-4">Add Questions</h4>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Question Text</label>
+                          <textarea
+                            value={currentQuestion.text}
+                            onChange={(e) => setCurrentQuestion({ ...currentQuestion, text: e.target.value })}
+                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-dominant focus:ring-dominant"
+                            rows={2}
+                            placeholder="Enter your question"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="block text-sm font-medium text-gray-700">Options</label>
+                          {currentQuestion.options.map((option, index) => (
+                            <div key={index} className="flex items-center space-x-2">
+                              <input
+                                type="radio"
+                                name="correctAnswer"
+                                checked={currentQuestion.correctAnswer === option}
+                                onChange={() => setCurrentQuestion({ ...currentQuestion, correctAnswer: option })}
+                                className="text-dominant focus:ring-dominant"
+                              />
+                              <input
+                                type="text"
+                                value={option}
+                                onChange={(e) => {
+                                  const newOptions = [...currentQuestion.options];
+                                  newOptions[index] = e.target.value;
+                                  setCurrentQuestion({ ...currentQuestion, options: newOptions });
+                                }}
+                                className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-dominant focus:ring-dominant"
+                                placeholder={`Option ${index + 1}`}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          onClick={handleAddQuestion}
+                          className="w-full bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200"
+                        >
+                          Add Question
+                        </button>
+                      </div>
+                    </div>
+
+                    {newTest.questions.length > 0 && (
+                      <div className="border-t pt-4 mt-4">
+                        <h4 className="text-md font-medium text-gray-900 mb-4">Added Questions ({newTest.questions.length})</h4>
+                        <div className="space-y-4">
+                          {newTest.questions.map((question, index) => (
+                            <div key={question.id} className="p-4 bg-gray-50 rounded-lg">
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <p className="font-medium">{index + 1}. {question.text}</p>
+                                  <div className="mt-2 space-y-1">
+                                    {question.options.map((option, optionIndex) => (
+                                      <p
+                                        key={optionIndex}
+                                        className={`text-sm ${
+                                          option === question.correctAnswer ? 'text-green-600 font-medium' : 'text-gray-600'
+                                        }`}
+                                      >
+                                        {optionIndex + 1}. {option}
+                                        {option === question.correctAnswer && ' ✓'}
+                                      </p>
+                                    ))}
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => handleRemoveQuestion(question.id)}
+                                  className="text-red-600 hover:text-red-700"
+                                >
+                                  <Trash2 size={20} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={handleCreateTest}
+                      disabled={isCreatingTest || newTest.questions.length === 0}
+                      className="w-full bg-dominant text-white px-4 py-2 rounded-lg hover:bg-dominant/90 disabled:opacity-50"
+                    >
+                      {isCreatingTest ? 'Creating...' : 'Create Test'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-lg shadow-sm p-4">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Existing Tests</h3>
+                  {tests.length === 0 ? (
+                    <p className="text-gray-500">No tests created yet.</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {tests.map((test) => (
+                        <div key={test.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                          <div>
+                            <h4 className="font-medium text-gray-900">{test.title}</h4>
+                            <p className="text-sm text-gray-500">{test.description}</p>
+                            <p className="text-sm text-gray-500">
+                              {test.questions.length} questions • {test.timeLimit} minutes
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => handleDeleteTest(test.id)}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            <Trash2 size={20} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {currentTest ? (
+                  <div className="bg-white rounded-lg shadow-sm p-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900">{currentTest.title}</h3>
+                      <button
+                        onClick={handleSubmitTest}
+                        className="bg-dominant text-white px-4 py-2 rounded-lg hover:bg-dominant/90"
+                      >
+                        Submit Test
+                      </button>
+                    </div>
+                    <div className="space-y-6">
+                      {currentTest.questions.map((question, index) => (
+                        <div key={question.id} className="p-4 bg-gray-50 rounded-lg">
+                          <p className="font-medium mb-2">
+                            {index + 1}. {question.text}
+                          </p>
+                          <div className="space-y-2">
+                            {question.options.map((option, optionIndex) => (
+                              <label
+                                key={optionIndex}
+                                className="flex items-center space-x-2 cursor-pointer"
+                              >
+                                <input
+                                  type="radio"
+                                  name={`question-${question.id}`}
+                                  value={option}
+                                  checked={testResponses[question.id] === option}
+                                  onChange={(e) =>
+                                    setTestResponses({
+                                      ...testResponses,
+                                      [question.id]: e.target.value,
+                                    })
+                                  }
+                                  className="text-dominant focus:ring-dominant"
+                                />
+                                <span>{option}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-lg shadow-sm p-4">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Available Tests</h3>
+                    {tests.length === 0 ? (
+                      <p className="text-gray-500">No tests available.</p>
+                    ) : (
+                      <div className="space-y-4">
+                        {tests.map((test) => {
+                          const submission = testSubmissions[test.id];
+                          return (
+                            <div
+                              key={test.id}
+                              className={`p-4 rounded-lg ${
+                                submission
+                                  ? 'bg-gray-50 cursor-not-allowed'
+                                  : 'bg-gray-50 hover:bg-gray-100 cursor-pointer'
+                              }`}
+                              onClick={() => !submission && handleStartTest(test)}
+                            >
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <h4 className="font-medium text-gray-900">{test.title}</h4>
+                                  <p className="text-sm text-gray-500">{test.description}</p>
+                                  <p className="text-sm text-gray-500">
+                                    {test.questions.length} questions • {test.timeLimit} minutes
+                                  </p>
+                                </div>
+                                {submission ? (
+                                  <div className="text-right">
+                                    <p className="text-sm font-medium text-gray-900">
+                                      Score: {submission.score.toFixed(1)}%
+                                    </p>
+                                    <p className="text-xs text-gray-500">
+                                      Submitted: {submission.submittedAt instanceof Date 
+                                        ? submission.submittedAt.toLocaleDateString()
+                                        : new Date(submission.submittedAt).toLocaleDateString()}
+                                    </p>
+                                    <p className="text-xs text-gray-500">
+                                      Time spent: {Math.round(submission.timeSpent / 1000 / 60)} minutes
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleStartTest(test);
+                                    }}
+                                    className="bg-dominant text-white px-4 py-2 rounded-lg hover:bg-dominant/90"
+                                  >
+                                    Start Test
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
