@@ -3,19 +3,59 @@ import { neon } from '@neondatabase/serverless';
 // Initialize the database connection
 const sql = neon(import.meta.env.VITE_DATABASE_URL);
 
-// Create materials table if it doesn't exist
+// Initialize the database
 export const initDatabase = async () => {
   try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS materials (
-        id SERIAL PRIMARY KEY,
-        classroom_id TEXT NOT NULL,
-        file_name TEXT NOT NULL,
-        file_data BYTEA NOT NULL,
-        uploaded_by TEXT NOT NULL,
-        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    // Check if materials table exists
+    const materialsExists = await sql`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'materials'
       );
     `;
+
+    if (!materialsExists[0].exists) {
+      await sql`
+        CREATE TABLE materials (
+          id SERIAL PRIMARY KEY,
+          classroom_id TEXT NOT NULL,
+          file_name TEXT NOT NULL,
+          file_data BYTEA NOT NULL,
+          uploaded_by TEXT NOT NULL,
+          uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `;
+    }
+
+    // Check if reports table exists
+    const reportsExists = await sql`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'reports'
+      );
+    `;
+
+    if (!reportsExists[0].exists) {
+      await sql`
+        CREATE TABLE reports (
+          id SERIAL PRIMARY KEY,
+          classroom_id TEXT NOT NULL,
+          test_id TEXT NOT NULL,
+          student_id TEXT NOT NULL,
+          student_name TEXT NOT NULL,
+          test_title TEXT NOT NULL,
+          file_name TEXT NOT NULL,
+          file_data BYTEA NOT NULL,
+          score NUMERIC NOT NULL,
+          total_questions INTEGER NOT NULL,
+          correct_answers INTEGER NOT NULL,
+          time_spent INTEGER NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(classroom_id, test_id, student_id)
+        );
+      `;
+    }
+
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
