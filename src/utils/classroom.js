@@ -20,7 +20,7 @@ const isCodeUnique = async (code) => {
 };
 
 // Create a new classroom
-export const createClassroom = async (teacherId, name) => {
+export const createClassroom = async (name, teacherId) => {
   let code;
   let isUnique = false;
   

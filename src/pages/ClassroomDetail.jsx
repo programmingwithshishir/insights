@@ -166,7 +166,10 @@ export default function ClassroomDetail() {
       <div className="pt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* Mobile Menu Button */}
-          <div className="sm:hidden flex justify-end mb-4">
+          <div className="sm:hidden flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">
+              {tabs.find(tab => tab.id === activeTab)?.label}
+            </h2>
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               className="p-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 focus:outline-none"
