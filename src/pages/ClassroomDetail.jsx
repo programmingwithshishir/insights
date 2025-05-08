@@ -127,9 +127,23 @@ export default function ClassroomDetail() {
     try {
       const reader = new FileReader();
       reader.onload = async (e) => {
-        const fileData = e.target.result;
-        await uploadPDF(classroomId, file.name, fileData, user.uid);
-        await fetchMaterials();
+        try {
+          // Convert ArrayBuffer to base64 using a more efficient method
+          const arrayBuffer = e.target.result;
+          const base64String = btoa(
+            new Uint8Array(arrayBuffer)
+              .reduce((data, byte) => data + String.fromCharCode(byte), '')
+          );
+          
+          await uploadPDF(classroomId, file.name, base64String, user.uid);
+          await fetchMaterials();
+        } catch (err) {
+          console.error('Error processing file:', err);
+          setUploadError('Failed to process file');
+        }
+      };
+      reader.onerror = () => {
+        setUploadError('Error reading file');
       };
       reader.readAsArrayBuffer(file);
     } catch (err) {
@@ -145,11 +159,17 @@ export default function ClassroomDetail() {
       const pdf = await getPDFById(pdfId);
       if (!pdf) throw new Error('PDF not found');
 
-      // Convert the binary data to a Blob
-      const blob = new Blob([pdf.file_data], { type: 'application/pdf' });
+      // Convert base64 back to Uint8Array
+      const binaryString = atob(pdf.file_data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // Create blob and download
+      const blob = new Blob([bytes], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
       
-      // Create a temporary link and trigger download
       const link = document.createElement('a');
       link.href = url;
       link.download = fileName;
