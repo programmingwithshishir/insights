@@ -213,8 +213,8 @@ export default function HomePage() {
                   </div>
                   <div className="bg-gray-100 p-6 rounded-lg flex flex-col items-center justify-center">
                     <Users size={40} className="text-dominant mb-3" />
-                    <p className="text-gray-900 font-medium">Class Discussion</p>
-                    <p className="text-gray-500 text-sm text-center">Engage and collaborate</p>
+                    <p className="text-gray-900 font-medium text-center">Class Discussion</p>
+                    <p className="text-gray-500 text-sm text-center mt-1">Engage and collaborate</p>
                   </div>
                   <div className="bg-gray-100 p-6 rounded-lg flex flex-col items-center justify-center">
                     <Calendar size={40} className="text-dominant mb-3" />

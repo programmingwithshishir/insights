@@ -4,6 +4,7 @@ import Home from './pages/Home';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Classroom from './pages/Classroom';
+import ClassroomDetail from './pages/ClassroomDetail';
 import JoinClassroom from './pages/JoinClassroom';
 import MyClassrooms from './pages/MyClassrooms';
 import ProfilePage from './pages/Profile';
@@ -54,6 +55,14 @@ const App = () => {
               <TeacherRoute>
                 <Classroom />
               </TeacherRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/classroom/:classroomId"
+          element={
+            <ProtectedRoute>
+              <ClassroomDetail />
             </ProtectedRoute>
           }
         />

@@ -81,4 +81,29 @@ export const deleteClassroom = async (classroomId) => {
   } catch (error) {
     throw new Error('Failed to delete classroom');
   }
+};
+
+// Get classrooms for a user (either as teacher or student)
+export const getUserClassrooms = async (userId, role) => {
+  try {
+    const classroomsRef = collection(db, 'classrooms');
+    let q;
+
+    if (role === 'teacher') {
+      // For teachers, get classrooms where they are the teacher
+      q = query(classroomsRef, where('teacherId', '==', userId));
+    } else {
+      // For students, get classrooms where they are in the students array
+      q = query(classroomsRef, where('students', 'array-contains', userId));
+    }
+
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (error) {
+    console.error('Error fetching user classrooms:', error);
+    throw new Error('Failed to fetch classrooms');
+  }
 }; 

@@ -5,9 +5,11 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { Users, Calendar, BookOpen, FileText, Trash2 } from 'lucide-react';
 import { deleteClassroom } from '../utils/classroom';
 import PageNav from '../components/PageNav';
+import { useNavigate } from 'react-router-dom';
 
 export default function MyClassroomsPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [classrooms, setClassrooms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -44,7 +46,12 @@ export default function MyClassroomsPage() {
     fetchClassrooms();
   }, [user]);
 
-  const handleDeleteClassroom = async (classroomId) => {
+  const handleClassroomClick = (classroomId) => {
+    navigate(`/classroom/${classroomId}`);
+  };
+
+  const handleDeleteClassroom = async (classroomId, e) => {
+    e.stopPropagation(); // Prevent triggering the classroom click
     if (!window.confirm('Are you sure you want to delete this classroom? This action cannot be undone.')) {
       return;
     }
@@ -122,7 +129,8 @@ export default function MyClassroomsPage() {
               {classrooms.map((classroom) => (
                 <div
                   key={classroom.id}
-                  className="bg-white shadow-xl rounded-xl overflow-hidden hover:shadow-2xl transition-shadow duration-300"
+                  onClick={() => handleClassroomClick(classroom.id)}
+                  className="bg-white shadow-xl rounded-xl overflow-hidden hover:shadow-2xl transition-shadow duration-300 cursor-pointer"
                 >
                   <div className="p-6">
                     <div className="flex items-center justify-between mb-4">
@@ -158,7 +166,7 @@ export default function MyClassroomsPage() {
                             </span>
                           </div>
                           <button
-                            onClick={() => handleDeleteClassroom(classroom.id)}
+                            onClick={(e) => handleDeleteClassroom(classroom.id, e)}
                             disabled={isDeleting}
                             className="w-full mt-4 flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
                           >
