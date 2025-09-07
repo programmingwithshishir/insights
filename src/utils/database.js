@@ -1,7 +1,7 @@
 import { neon } from '@neondatabase/serverless';
 
 // Initialize the database connection
-const sql = neon(import.meta.env.VITE_DATABASE_URL);
+const sql = neon(import.meta.env.VITE_NEON_DATABASE_URL);
 
 // Initialize the database
 export const initDatabase = async () => {

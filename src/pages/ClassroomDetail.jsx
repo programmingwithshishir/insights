@@ -38,6 +38,7 @@ export default function ClassroomDetail() {
     options: ['', '', '', ''],
     correctAnswer: '',
   });
+  const [reports, setReports] = useState([]);
 
   const tabs = [
     ...(user.role === 'student' ? [{ id: 'chat', label: 'Chat', icon: MessageSquare }] : []),
@@ -365,7 +366,9 @@ export default function ClassroomDetail() {
       const endTime = new Date();
       const timeSpent = endTime - testStartTime;
       const score = calculateScore();
+      const correctAnswers = Math.round((score / 100) * currentTest.questions.length);
 
+      // Store test response
       const responsesRef = collection(db, 'classrooms', classroomId, 'testResponses');
       await addDoc(responsesRef, {
         testId: currentTest.id,
@@ -376,6 +379,10 @@ export default function ClassroomDetail() {
         endTime: endTime,
         timeSpent: timeSpent,
         score: score,
+        totalQuestions: currentTest.questions.length,
+        correctAnswers: correctAnswers,
+        testTitle: currentTest.title,
+        submittedAt: serverTimestamp()
       });
 
       // Update testSubmissions immediately
@@ -384,7 +391,10 @@ export default function ClassroomDetail() {
         [currentTest.id]: {
           score: score,
           submittedAt: endTime,
-          timeSpent: timeSpent
+          timeSpent: timeSpent,
+          totalQuestions: currentTest.questions.length,
+          correctAnswers: correctAnswers,
+          testTitle: currentTest.title
         }
       }));
 
@@ -443,6 +453,49 @@ export default function ClassroomDetail() {
       ...newTest,
       questions: newTest.questions.filter(q => q.id !== questionId)
     });
+  };
+
+  // Fetch reports when reports tab is active
+  useEffect(() => {
+    if (activeTab === 'reports') {
+      fetchReports();
+    }
+  }, [activeTab, classroomId]);
+
+  const fetchReports = async () => {
+    try {
+      const responsesRef = collection(db, 'classrooms', classroomId, 'testResponses');
+      let q;
+      
+      if (user.role === 'teacher') {
+        // Teachers can see all reports
+        q = query(responsesRef, orderBy('submittedAt', 'desc'));
+      } else {
+        // Students can only see their own reports
+        q = query(
+          responsesRef,
+          where('studentId', '==', user.uid)
+        );
+      }
+
+      const querySnapshot = await getDocs(q);
+      const reportsData = querySnapshot.docs
+        .map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }))
+        .sort((a, b) => {
+          // Sort by submittedAt in memory
+          const dateA = a.submittedAt?.toDate?.() || new Date(a.submittedAt);
+          const dateB = b.submittedAt?.toDate?.() || new Date(b.submittedAt);
+          return dateB - dateA;
+        });
+      
+      setReports(reportsData);
+    } catch (err) {
+      console.error('Error fetching reports:', err);
+      setError('Failed to load reports');
+    }
   };
 
   const renderContent = () => {
@@ -899,7 +952,88 @@ export default function ClassroomDetail() {
       case 'reports':
         return (
           <div className="h-[600px] bg-gray-50 rounded-lg p-4">
-            <p className="text-gray-500 text-center">Performance reports and analytics coming soon...</p>
+            {reports.length === 0 ? (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-gray-500">No reports available yet.</p>
+              </div>
+            ) : (
+              <div className="space-y-4 overflow-y-auto max-h-[calc(100%-2rem)]">
+                {reports.map((report) => (
+                  <div
+                    key={report.id}
+                    className="bg-white p-4 rounded-lg shadow-sm"
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">{report.testTitle}</h3>
+                        {user.role === 'teacher' && (
+                          <p className="text-sm text-gray-500">Student: {report.studentName}</p>
+                        )}
+                      </div>
+                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                        report.score >= 90 ? 'bg-green-100 text-green-800' :
+                        report.score >= 70 ? 'bg-blue-100 text-blue-800' :
+                        report.score >= 50 ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-red-100 text-red-800'
+                      }`}>
+                        {report.score.toFixed(1)}%
+                      </span>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      {user.role === 'teacher' && (
+                        <div>
+                          <p className="text-sm text-gray-500">Student ID</p>
+                          <p className="font-medium">{report.studentId}</p>
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-sm text-gray-500">Submitted</p>
+                        <p className="font-medium">
+                          {report.submittedAt?.toDate().toLocaleDateString() || 
+                           new Date(report.submittedAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">Time Spent</p>
+                        <p className="font-medium">{Math.round(report.timeSpent / 1000 / 60)} minutes</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">Questions</p>
+                        <p className="font-medium">{report.correctAnswers}/{report.totalQuestions} correct</p>
+                      </div>
+                    </div>
+
+                    <div className="border-t pt-4">
+                      <h4 className="text-sm font-medium text-gray-900 mb-2">Performance Analysis</h4>
+                      <div className="space-y-2">
+                        {report.score >= 90 ? (
+                          <>
+                            <p className="text-sm text-green-600">Excellent performance! {user.role === 'teacher' ? 'The student has' : 'You have'} demonstrated a strong understanding of the material.</p>
+                            <p className="text-sm text-gray-600">{user.role === 'teacher' ? 'Consider assigning more advanced topics.' : 'Consider helping your peers or exploring more advanced topics.'}</p>
+                          </>
+                        ) : report.score >= 70 ? (
+                          <>
+                            <p className="text-sm text-blue-600">Good performance! {user.role === 'teacher' ? 'The student has' : 'You have'} a solid understanding of most concepts.</p>
+                            <p className="text-sm text-gray-600">{user.role === 'teacher' ? 'Suggest focusing on specific areas for improvement.' : 'Focus on the areas where you made mistakes to improve further.'}</p>
+                          </>
+                        ) : report.score >= 50 ? (
+                          <>
+                            <p className="text-sm text-yellow-600">Satisfactory performance. There is room for improvement.</p>
+                            <p className="text-sm text-gray-600">{user.role === 'teacher' ? 'Consider providing additional practice materials.' : 'Review the incorrect answers and practice similar questions.'}</p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-sm text-red-600">Needs improvement. {user.role === 'teacher' ? 'The student should' : 'Consider'} reviewing the material thoroughly.</p>
+                            <p className="text-sm text-gray-600">{user.role === 'teacher' ? 'Schedule a one-on-one session to address knowledge gaps.' : 'Focus on understanding the basic concepts before moving forward.'}</p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         );
       default:
